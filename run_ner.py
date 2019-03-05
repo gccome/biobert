@@ -96,6 +96,12 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_integer(
+    "num_labels",
+    11,
+    "Number of labels in dataset + 4 ('X', '[CLS]', '[SEP]', and padding)."
+)
+
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
@@ -141,7 +147,7 @@ class DataProcessor(object):
         raise NotImplementedError()
 
     @classmethod
-    def _read_data(cls, input_file):
+    def _read_data_original(cls, input_file):
         """Reads a BIO data."""
         with open(input_file) as f:
             lines = []
@@ -176,7 +182,36 @@ class DataProcessor(object):
                 label = line.strip().split()[-1]
                 words.append(word)
                 labels.append(label)
+            # print(len(lines))
+            # print(lines[-1])
             return lines
+
+    @classmethod
+    def _read_data(cls, input_file):
+        lines = []
+        words = []
+        tags = []
+        with open(input_file, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    word, tag = line.split()
+                    words.append(word)
+                    tags.append(tag)
+                else:
+                    if len(words) != 0:
+                        t = ' '.join(tags)
+                        w = ' '.join(words)
+                        lines.append([t, w])
+                        words, tags = [], []
+            if len(words) != 0:
+                t = ' '.join(tags)
+                w = ' '.join(words)
+                lines.append([t, w])
+        # print(len(lines))
+        # print(lines[0])
+        # print(lines[-1])
+        return lines
 
 class NerProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
@@ -195,7 +230,8 @@ class NerProcessor(DataProcessor):
 
 
     def get_labels(self):
-        return ["B", "I", "O", "X", "[CLS]", "[SEP]"] 
+        # return ["B", "I", "O", "X", "[CLS]", "[SEP]"]
+        return ["O", "X", "[CLS]", "[SEP]", "B-test", "I-test", "B-problem", "I-problem", "B-treatment", "I-treatment"]
 
     def _create_example(self, lines, set_type):
         examples = []
@@ -378,7 +414,7 @@ def create_model(bert_config, is_training, input_ids, input_mask,
         output_layer = tf.reshape(output_layer, [-1, hidden_size])
         logits = tf.matmul(output_layer, output_weight, transpose_b=True)
         logits = tf.nn.bias_add(logits, output_bias)
-        logits = tf.reshape(logits, [-1, FLAGS.max_seq_length, 7])
+        logits = tf.reshape(logits, [-1, FLAGS.max_seq_length, FLAGS.num_labels])
         # mask = tf.cast(input_mask,tf.float32)
         # loss = tf.contrib.seq2seq.sequence_loss(logits,labels,mask)
         # return (loss, logits, predict)
@@ -405,7 +441,6 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         label_ids = features["label_ids"]
         #label_mask = features["label_mask"]
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-
         (total_loss,  per_example_loss,logits,predicts) = create_model(
             bert_config, is_training, input_ids, input_mask,segment_ids, label_ids,
             num_labels, use_one_hot_embeddings)
@@ -443,9 +478,9 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
             def metric_fn(per_example_loss, label_ids, logits):
             # def metric_fn(label_ids, logits):
                 predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-                precision = tf_metrics.precision(label_ids,predictions,7,[1,2],average="macro")
-                recall = tf_metrics.recall(label_ids,predictions,7,[1,2],average="macro")
-                f = tf_metrics.f1(label_ids,predictions,7,[1,2],average="macro")
+                precision = tf_metrics.precision(label_ids,predictions, FLAGS.num_labels, [1, 2], average="macro")
+                recall = tf_metrics.recall(label_ids,predictions, FLAGS.num_labels, [1, 2], average="macro")
+                f = tf_metrics.f1(label_ids,predictions, FLAGS.num_labels, [1, 2], average="macro")
                 #
                 return {
                     "eval_precision":precision,
@@ -469,6 +504,13 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
 
 
 def main(_):
+
+    # # Test
+    # processor = NerProcessor()
+    # train_examples = processor.get_train_examples('./data/i2b2_2010/')
+    # predict_examples = processor.get_test_examples('./data/i2b2_2010/')
+    # exit(0)
+
     tf.logging.set_verbosity(tf.logging.INFO)
     processors = {
         "ner": NerProcessor

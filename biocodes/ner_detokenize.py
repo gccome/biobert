@@ -66,6 +66,8 @@ def detokenize(golden_path, pred_token_test_path, pred_label_test_path, output_d
         else:
             bert_pred['toks'].append(t)
             bert_pred['labels'].append(l)
+    print(bert_pred['toks'][:10])
+    print(bert_pred['labels'][:10])
     
     if (len(bert_pred['toks']) != len(bert_pred['labels'])): # Sanity check
         print("Error! : len(bert_pred['toks']) != len(bert_pred['labels']) : Please report us")
